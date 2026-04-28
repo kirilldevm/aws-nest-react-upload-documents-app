@@ -5,6 +5,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import config from './config';
 import { AwsModule } from './common/aws/aws.module';
+import { DocumentsModule } from './modules/documents/documents.module';
 import { SseModule } from './modules/sse/sse.module';
 
 @Module({
@@ -20,6 +21,7 @@ import { SseModule } from './modules/sse/sse.module';
       inject: [ConfigService],
     }),
     AwsModule,
+    DocumentsModule,
     SseModule,
   ],
   controllers: [AppController],
