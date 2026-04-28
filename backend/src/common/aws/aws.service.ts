@@ -1,8 +1,10 @@
 import { S3Client } from '@aws-sdk/client-s3';
 import { SQSClient } from '@aws-sdk/client-sqs';
+import { defaultProvider } from '@aws-sdk/credential-provider-node';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Client as OpenSearchClient } from '@opensearch-project/opensearch';
+import { AwsSigv4Signer } from '@opensearch-project/opensearch/aws';
 
 @Injectable()
 export class AwsService {
@@ -39,16 +41,23 @@ export class AwsService {
   createOpenSearchClient(): OpenSearchClient {
     const hasBasicAuth = this.opensearchUsername && this.opensearchPassword;
 
+    if (!hasBasicAuth) {
+      return new OpenSearchClient({
+        ...AwsSigv4Signer({
+          region: this.region,
+          service: 'es',
+          getCredentials: () => defaultProvider()(),
+        }),
+        node: this.opensearchNode,
+      });
+    }
+
     return new OpenSearchClient({
       node: this.opensearchNode,
-      ...(hasBasicAuth
-        ? {
-            auth: {
-              username: this.opensearchUsername,
-              password: this.opensearchPassword,
-            },
-          }
-        : {}),
+      auth: {
+        username: this.opensearchUsername,
+        password: this.opensearchPassword,
+      },
     });
   }
 }
