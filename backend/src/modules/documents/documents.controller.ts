@@ -2,35 +2,23 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
+  Param,
   Patch,
   Post,
   Query,
 } from '@nestjs/common';
 import { DocumentsService } from './documents.service';
-import { DocumentStatus } from './entities/document-status.enum';
-
-type CreateDocumentBody = {
-  userEmail: string;
-  userFilename: string;
-  s3Filename: string;
-  s3Bucket: string;
-  mimeType: string;
-  sizeBytes: number;
-};
-
-type UpdateStatusBody = {
-  documentId: string;
-  status: DocumentStatus;
-  errorMessage?: string;
-};
+import { CreateDocumentDto } from './dto/create-document.dto';
+import { UpdateStatusDto } from './dto/update-status.dto';
 
 @Controller('documents')
 export class DocumentsController {
   constructor(private readonly documentsService: DocumentsService) {}
 
   @Post()
-  async createPendingDocument(@Body() body: CreateDocumentBody) {
+  async createPendingDocument(@Body() body: CreateDocumentDto) {
     if (!body.userEmail || !body.userFilename || !body.s3Filename) {
       throw new BadRequestException(
         'userEmail, userFilename and s3Filename are required',
@@ -70,7 +58,7 @@ export class DocumentsController {
   }
 
   @Patch('status')
-  async updateStatus(@Body() body: UpdateStatusBody) {
+  async updateStatus(@Body() body: UpdateStatusDto) {
     if (!body.documentId || !body.status) {
       throw new BadRequestException('documentId and status are required');
     }
@@ -82,5 +70,20 @@ export class DocumentsController {
     );
 
     return { ok: true };
+  }
+
+  @Delete(':id')
+  async deleteById(
+    @Param('id') documentId?: string,
+    @Query('userEmail') userEmail?: string,
+  ) {
+    if (!documentId) {
+      throw new BadRequestException('Document id is required');
+    }
+    if (!userEmail) {
+      throw new BadRequestException('userEmail query parameter is required');
+    }
+
+    return this.documentsService.deleteByIdForUser(documentId, userEmail);
   }
 }

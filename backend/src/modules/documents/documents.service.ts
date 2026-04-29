@@ -1,8 +1,14 @@
-import { Injectable } from '@nestjs/common';
+import {
+  Injectable,
+  InternalServerErrorException,
+  NotFoundException,
+} from '@nestjs/common';
+import { DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, IsNull, Repository } from 'typeorm';
 import { AwsService } from '../../common/aws/aws.service';
+import { SseService } from '../sse/sse.service';
 import { CreateDocumentDto } from './dto/create-document.dto';
 import { DocumentStatus } from './entities/document-status.enum';
 import { DocumentEntity } from './entities/document.entity';
@@ -25,6 +31,7 @@ export class DocumentsService {
     private readonly documentsRepository: Repository<DocumentEntity>,
     private readonly configService: ConfigService,
     private readonly awsService: AwsService,
+    private readonly sseService: SseService,
   ) {}
 
   async createPendingDocument(dto: CreateDocumentDto) {
@@ -164,5 +171,103 @@ export class DocumentsService {
           highlights: hit.highlight?.content ?? [],
         };
       });
+  }
+
+  async deleteByIdForUser(documentId: string, userEmail: string) {
+    const document = await this.documentsRepository.findOne({
+      where: {
+        id: documentId,
+        userEmail,
+        deletedAt: IsNull(),
+      },
+    });
+
+    if (!document) {
+      throw new NotFoundException('Document not found');
+    }
+
+    const s3Client = this.awsService.createS3Client();
+    const openSearchClient = this.awsService.createOpenSearchClient();
+    const openSearchIndex = this.configService.getOrThrow<string>(
+      'config.aws.opensearchIndex',
+    );
+
+    const [s3Result, openSearchResult] = await Promise.allSettled([
+      s3Client.send(
+        new DeleteObjectCommand({
+          Bucket: document.s3Bucket,
+          Key: document.s3Filename,
+        }),
+      ),
+      openSearchClient.delete({
+        index: openSearchIndex,
+        id: document.id,
+      }),
+    ]);
+
+    const openSearchDeleteFailed =
+      openSearchResult.status === 'rejected' &&
+      !this.isOpenSearchNotFoundError(openSearchResult.reason);
+
+    if (s3Result.status === 'rejected' || openSearchDeleteFailed) {
+      const details = {
+        s3:
+          s3Result.status === 'fulfilled'
+            ? 'ok'
+            : s3Result.reason instanceof Error
+              ? s3Result.reason.message
+              : 'S3 delete failed',
+        openSearch:
+          openSearchResult.status === 'fulfilled'
+            ? 'ok'
+            : this.isOpenSearchNotFoundError(openSearchResult.reason)
+              ? 'not_found_ignored'
+              : openSearchResult.reason instanceof Error
+                ? openSearchResult.reason.message
+                : 'OpenSearch delete failed',
+      };
+
+      throw new InternalServerErrorException({
+        message: 'Document deletion partially failed',
+        details,
+      });
+    }
+
+    await this.documentsRepository.update(
+      { id: document.id },
+      { deletedAt: new Date() },
+    );
+
+    this.sseService.publish(userEmail, 'document_deleted', {
+      documentId: document.id,
+    });
+
+    return {
+      ok: true,
+      documentId: document.id,
+      cleanup: {
+        db: 'soft_deleted',
+        s3: 'deleted',
+        openSearch:
+          openSearchResult.status === 'fulfilled'
+            ? 'deleted'
+            : 'not_found_ignored',
+      },
+    };
+  }
+
+  private isOpenSearchNotFoundError(error: unknown) {
+    if (!error || typeof error !== 'object') return false;
+    const maybeMeta = error as {
+      meta?: { statusCode?: number };
+      statusCode?: number;
+      message?: string;
+    };
+
+    return (
+      maybeMeta.meta?.statusCode === 404 ||
+      maybeMeta.statusCode === 404 ||
+      maybeMeta.message?.includes('404') === true
+    );
   }
 }
