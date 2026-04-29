@@ -53,6 +53,22 @@ export class DocumentsController {
     return this.documentsService.findByUserEmail(userEmail);
   }
 
+  @Get('search')
+  async searchByUser(
+    @Query('userEmail') userEmail?: string,
+    @Query('q') query?: string,
+  ) {
+    if (!userEmail) {
+      throw new BadRequestException('userEmail query parameter is required');
+    }
+
+    if (!query?.trim()) {
+      throw new BadRequestException('q query parameter is required');
+    }
+
+    return this.documentsService.searchByUserEmail(userEmail, query.trim());
+  }
+
   @Patch('status')
   async updateStatus(@Body() body: UpdateStatusBody) {
     if (!body.documentId || !body.status) {

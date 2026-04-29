@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { DocumentsModule } from '../../modules/documents/documents.module';
 import { SseModule } from '../../modules/sse/sse.module';
@@ -7,7 +7,7 @@ import { AwsService } from './aws.service';
 import { SqsListenerService } from './sqs-listener.service';
 
 @Module({
-  imports: [ConfigModule, DocumentsModule, SseModule],
+  imports: [ConfigModule, forwardRef(() => DocumentsModule), SseModule],
   controllers: [AwsHealthController],
   providers: [AwsService, SqsListenerService],
   exports: [AwsService],
