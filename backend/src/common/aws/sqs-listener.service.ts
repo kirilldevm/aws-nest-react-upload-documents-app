@@ -1,4 +1,4 @@
-import { HeadObjectCommand } from '@aws-sdk/client-s3';
+import { GetObjectCommand } from '@aws-sdk/client-s3';
 import {
   DeleteMessageCommand,
   Message,
@@ -11,6 +11,7 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import mammoth from 'mammoth';
 import { DocumentsService } from '../../modules/documents/documents.service';
 import { DocumentStatus } from '../../modules/documents/entities/document-status.enum';
 import { SseService } from '../../modules/sse/sse.service';
@@ -28,6 +29,12 @@ type S3EventEnvelope = {
   Records?: S3EventRecord[];
   Message?: string;
 };
+
+type PdfParseResult = {
+  text?: string;
+};
+
+type PdfParseFn = (buffer: Buffer) => Promise<PdfParseResult>;
 
 @Injectable()
 export class SqsListenerService implements OnModuleInit, OnModuleDestroy {
@@ -193,15 +200,10 @@ export class SqsListenerService implements OnModuleInit, OnModuleDestroy {
     });
 
     try {
-      const s3Client = this.awsService.createS3Client();
-      await s3Client.send(
-        new HeadObjectCommand({
-          Bucket: this.s3Bucket,
-          Key: s3Key,
-        }),
-      );
-
       const openSearchClient = this.awsService.createOpenSearchClient();
+      const fileBuffer = await this.getS3ObjectBuffer(s3Key);
+      const extractedText = await this.extractTextFromFile(s3Key, fileBuffer);
+
       await openSearchClient.index({
         index: this.openSearchIndex,
         id: document.id,
@@ -210,7 +212,7 @@ export class SqsListenerService implements OnModuleInit, OnModuleDestroy {
           userEmail: document.userEmail,
           userFilename: document.userFilename,
           s3Filename: document.s3Filename,
-          content: '',
+          content: extractedText,
           uploadedAt: document.uploadedAt.toISOString(),
         },
         refresh: true,
@@ -239,5 +241,76 @@ export class SqsListenerService implements OnModuleInit, OnModuleDestroy {
       });
       throw error;
     }
+  }
+
+  private async getS3ObjectBuffer(s3Key: string): Promise<Buffer> {
+    const s3Client = this.awsService.createS3Client();
+    const response = await s3Client.send(
+      new GetObjectCommand({
+        Bucket: this.s3Bucket,
+        Key: s3Key,
+      }),
+    );
+
+    if (!response.Body) {
+      throw new Error(`S3 object body is empty for key ${s3Key}`);
+    }
+
+    const bodyWithTransform = response.Body as {
+      transformToByteArray?: () => Promise<Uint8Array>;
+    };
+
+    if (typeof bodyWithTransform.transformToByteArray === 'function') {
+      const bytes = await bodyWithTransform.transformToByteArray();
+      return Buffer.from(bytes);
+    }
+
+    throw new Error(
+      'Unsupported S3 stream body: transformToByteArray is missing',
+    );
+  }
+
+  private async extractTextFromFile(
+    s3Key: string,
+    buffer: Buffer,
+  ): Promise<string> {
+    const lowerKey = s3Key.toLowerCase();
+
+    if (lowerKey.endsWith('.pdf')) {
+      const pdfParseModule: unknown = await import('pdf-parse');
+      const parsePdf = this.resolvePdfParser(pdfParseModule);
+      const parsed = await parsePdf(buffer);
+      return parsed.text?.trim() || '';
+    }
+
+    if (lowerKey.endsWith('.docx')) {
+      const parsed = await mammoth.extractRawText({ buffer });
+      return parsed.value?.trim() || '';
+    }
+
+    throw new Error(`Unsupported file type for key ${s3Key}`);
+  }
+
+  private resolvePdfParser(moduleValue: unknown): PdfParseFn {
+    if (this.isPdfParseFn(moduleValue)) {
+      return moduleValue;
+    }
+
+    if (
+      typeof moduleValue === 'object' &&
+      moduleValue !== null &&
+      'default' in moduleValue
+    ) {
+      const defaultExport = moduleValue.default;
+      if (this.isPdfParseFn(defaultExport)) {
+        return defaultExport;
+      }
+    }
+
+    throw new Error('Unable to resolve pdf-parse function');
+  }
+
+  private isPdfParseFn(value: unknown): value is PdfParseFn {
+    return typeof value === 'function';
   }
 }
