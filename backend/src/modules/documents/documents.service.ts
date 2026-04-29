@@ -56,6 +56,15 @@ export class DocumentsService {
     });
   }
 
+  async findByS3Filename(s3Filename: string) {
+    return this.documentsRepository.findOne({
+      where: {
+        s3Filename,
+        deletedAt: IsNull(),
+      },
+    });
+  }
+
   async updateStatus(
     documentId: string,
     status: DocumentStatus,
