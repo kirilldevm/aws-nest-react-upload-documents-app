@@ -3,10 +3,11 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-import config from './config';
 import { AwsModule } from './common/aws/aws.module';
+import config from './config';
 import { DocumentsModule } from './modules/documents/documents.module';
 import { SseModule } from './modules/sse/sse.module';
+import { UploadsModule } from './modules/uploads/uploads.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { SseModule } from './modules/sse/sse.module';
     }),
     AwsModule,
     DocumentsModule,
+    UploadsModule,
     SseModule,
   ],
   controllers: [AppController],

@@ -1,33 +1,27 @@
 import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IsNull, Repository } from 'typeorm';
+import { In, IsNull, Repository } from 'typeorm';
+import { CreateDocumentDto } from './dto/create-document.dto';
 import { DocumentStatus } from './entities/document-status.enum';
 import { DocumentEntity } from './entities/document.entity';
-
-type CreateDocumentParams = {
-  userEmail: string;
-  userFilename: string;
-  s3Filename: string;
-  s3Bucket: string;
-  mimeType: string;
-  sizeBytes: number;
-};
 
 @Injectable()
 export class DocumentsService {
   constructor(
     @InjectRepository(DocumentEntity)
     private readonly documentsRepository: Repository<DocumentEntity>,
+    private readonly configService: ConfigService,
   ) {}
 
-  async createPendingDocument(params: CreateDocumentParams) {
+  async createPendingDocument(dto: CreateDocumentDto) {
     const document = this.documentsRepository.create({
-      userEmail: params.userEmail,
-      userFilename: params.userFilename,
-      s3Filename: params.s3Filename,
-      s3Bucket: params.s3Bucket,
-      mimeType: params.mimeType,
-      sizeBytes: String(params.sizeBytes),
+      userEmail: dto.userEmail,
+      userFilename: dto.userFilename,
+      s3Filename: dto.s3Filename,
+      s3Bucket: this.configService.getOrThrow<string>('config.aws.s3Bucket'),
+      mimeType: dto.mimeType,
+      sizeBytes: String(dto.sizeBytes),
       status: DocumentStatus.Pending,
       errorMessage: null,
       indexedAt: null,
@@ -42,6 +36,19 @@ export class DocumentsService {
       where: {
         userEmail,
         deletedAt: IsNull(),
+      },
+      order: {
+        uploadedAt: 'DESC',
+      },
+    });
+  }
+
+  async findActiveByUserEmail(userEmail: string) {
+    return this.documentsRepository.findOne({
+      where: {
+        userEmail,
+        deletedAt: IsNull(),
+        status: In([DocumentStatus.Pending, DocumentStatus.Processing]),
       },
       order: {
         uploadedAt: 'DESC',
