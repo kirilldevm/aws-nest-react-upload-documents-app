@@ -13,3 +13,11 @@ export type DocumentItem = {
   indexedAt: string | null;
 };
 
+export type SearchDocumentItem = {
+  documentId: string;
+  filename: string | null;
+  uploadedAt: string | null;
+  status: DocumentStatus | null;
+  highlights: string[];
+};
+

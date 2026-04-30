@@ -1,5 +1,5 @@
 import { api } from '../config/api';
-import type { DocumentItem } from '../types/document';
+import type { DocumentItem, SearchDocumentItem } from '../types/document';
 import type {
   CreateUploadPresignRequest,
   CreateUploadPresignResponse,
@@ -28,6 +28,13 @@ export class DocumentsService {
         params: { userEmail },
       },
     );
+    return data;
+  }
+
+  async searchDocuments(userEmail: string, query: string) {
+    const { data } = await api.get<SearchDocumentItem[]>('/documents/search', {
+      params: { userEmail, q: query },
+    });
     return data;
   }
 }

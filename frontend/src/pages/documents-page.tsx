@@ -1,6 +1,13 @@
-import { useMemo, useState, type FormEvent } from 'react';
+import { useMemo, useState } from 'react';
+import DocumentsListCard from '../components/documents-list-card';
+import SearchDocumentsCard from '../components/search-documents-card';
 import { Button } from '../components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from '../components/ui/card';
 import {
   Field,
   FieldDescription,
@@ -13,14 +20,22 @@ import { useAuth } from '../contexts/auth-context';
 import { useDeleteDocumentMutation } from '../hooks/use-delete-document-mutation';
 import { useDocumentsQuery } from '../hooks/use-documents-query';
 import { useDocumentsSse } from '../hooks/use-documents-sse';
+import { useSearchDocumentsQuery } from '../hooks/use-search-documents-query';
 import { useUploadDocumentMutation } from '../hooks/use-upload-document-mutation';
 
 export default function DocumentsPage() {
   const { email } = useAuth();
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [formError, setFormError] = useState('');
+  const [searchInput, setSearchInput] = useState('');
+  const [submittedSearch, setSubmittedSearch] = useState('');
 
   const documentsQuery = useDocumentsQuery(email);
+  const searchQuery = useSearchDocumentsQuery(
+    email,
+    submittedSearch,
+    Boolean(submittedSearch),
+  );
   useDocumentsSse(email);
   const uploadMutation = useUploadDocumentMutation(email);
   const deleteMutation = useDeleteDocumentMutation(email);
@@ -30,7 +45,9 @@ export default function DocumentsPage() {
     [selectedFile, uploadMutation.isPending],
   );
 
-  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+  const handleSubmit: React.ComponentProps<'form'>['onSubmit'] = async (
+    event,
+  ) => {
     event.preventDefault();
     setFormError('');
 
@@ -41,9 +58,14 @@ export default function DocumentsPage() {
     }
 
     try {
-      await uploadMutation.mutateAsync({ userEmail: email, file: selectedFile });
+      await uploadMutation.mutateAsync({
+        userEmail: email,
+        file: selectedFile,
+      });
       setSelectedFile(null);
-      const input = document.getElementById('upload-file') as HTMLInputElement | null;
+      const input = document.getElementById(
+        'upload-file',
+      ) as HTMLInputElement | null;
       if (input) input.value = '';
     } catch (error) {
       const message =
@@ -55,6 +77,11 @@ export default function DocumentsPage() {
   const onDelete = async (documentId: string) => {
     if (!email) return;
     await deleteMutation.mutateAsync(documentId);
+  };
+
+  const onSearchSubmit: React.ComponentProps<'form'>['onSubmit'] = (event) => {
+    event.preventDefault();
+    setSubmittedSearch(searchInput.trim());
   };
 
   return (
@@ -80,7 +107,9 @@ export default function DocumentsPage() {
                   <FieldDescription>
                     Allowed: .pdf, .docx. Max file size: 10MB.
                   </FieldDescription>
-                  <FieldError errors={formError ? [{ message: formError }] : undefined} />
+                  <FieldError
+                    errors={formError ? [{ message: formError }] : undefined}
+                  />
                 </Field>
                 <Button type='submit' disabled={!canUpload}>
                   {uploadMutation.isPending ? 'Uploading...' : 'Upload'}
@@ -90,49 +119,23 @@ export default function DocumentsPage() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Your documents</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {documentsQuery.isLoading ? <p>Loading...</p> : null}
-            {documentsQuery.isError ? (
-              <p className='text-destructive'>Failed to load documents</p>
-            ) : null}
-            {!documentsQuery.isLoading &&
-            !documentsQuery.isError &&
-            !documentsQuery.data?.length ? (
-              <p className='text-muted-foreground'>No documents yet.</p>
-            ) : null}
+        <SearchDocumentsCard
+          searchInput={searchInput}
+          submittedSearch={submittedSearch}
+          isLoading={searchQuery.isLoading}
+          isError={searchQuery.isError}
+          results={searchQuery.data}
+          onSearchInputChange={setSearchInput}
+          onSubmit={onSearchSubmit}
+        />
 
-            {documentsQuery.data?.length ? (
-              <ul className='space-y-2'>
-                {documentsQuery.data.map((doc) => (
-                  <li
-                    key={doc.id}
-                    className='flex items-center justify-between border border-border p-2'
-                  >
-                    <div>
-                      <p className='font-medium'>{doc.userFilename}</p>
-                      <p className='text-xs text-muted-foreground'>
-                        Status: {doc.status}
-                      </p>
-                    </div>
-                    <Button
-                      type='button'
-                      variant='destructive'
-                      size='sm'
-                      disabled={deleteMutation.isPending}
-                      onClick={() => onDelete(doc.id)}
-                    >
-                      Delete
-                    </Button>
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-          </CardContent>
-        </Card>
+        <DocumentsListCard
+          documents={documentsQuery.data}
+          isLoading={documentsQuery.isLoading}
+          isError={documentsQuery.isError}
+          isDeletePending={deleteMutation.isPending}
+          onDelete={onDelete}
+        />
       </div>
     </main>
   );
