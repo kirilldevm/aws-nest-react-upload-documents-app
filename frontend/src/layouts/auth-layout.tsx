@@ -1,4 +1,5 @@
 import { Navigate, Outlet } from 'react-router';
+import Header from '../components/header';
 import { useAuth } from '../contexts/auth-context';
 
 export default function AuthLayout() {
@@ -9,7 +10,8 @@ export default function AuthLayout() {
   }
 
   return (
-    <div>
+    <div className='min-h-screen bg-background text-foreground'>
+      <Header />
       <Outlet />
     </div>
   );

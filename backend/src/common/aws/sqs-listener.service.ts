@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import mammoth from 'mammoth';
+import { PDFParse } from 'pdf-parse';
 import { DocumentsService } from '../../modules/documents/documents.service';
 import { DocumentStatus } from '../../modules/documents/entities/document-status.enum';
 import { SseService } from '../../modules/sse/sse.service';
@@ -29,12 +30,6 @@ type S3EventEnvelope = {
   Records?: S3EventRecord[];
   Message?: string;
 };
-
-type PdfParseResult = {
-  text?: string;
-};
-
-type PdfParseFn = (buffer: Buffer) => Promise<PdfParseResult>;
 
 @Injectable()
 export class SqsListenerService implements OnModuleInit, OnModuleDestroy {
@@ -277,10 +272,13 @@ export class SqsListenerService implements OnModuleInit, OnModuleDestroy {
     const lowerKey = s3Key.toLowerCase();
 
     if (lowerKey.endsWith('.pdf')) {
-      const pdfParseModule: unknown = await import('pdf-parse');
-      const parsePdf = this.resolvePdfParser(pdfParseModule);
-      const parsed = await parsePdf(buffer);
-      return parsed.text?.trim() || '';
+      const parser = new PDFParse({ data: buffer });
+      try {
+        const parsed = await parser.getText();
+        return parsed.text?.trim() || '';
+      } finally {
+        await parser.destroy();
+      }
     }
 
     if (lowerKey.endsWith('.docx')) {
@@ -289,28 +287,5 @@ export class SqsListenerService implements OnModuleInit, OnModuleDestroy {
     }
 
     throw new Error(`Unsupported file type for key ${s3Key}`);
-  }
-
-  private resolvePdfParser(moduleValue: unknown): PdfParseFn {
-    if (this.isPdfParseFn(moduleValue)) {
-      return moduleValue;
-    }
-
-    if (
-      typeof moduleValue === 'object' &&
-      moduleValue !== null &&
-      'default' in moduleValue
-    ) {
-      const defaultExport = moduleValue.default;
-      if (this.isPdfParseFn(defaultExport)) {
-        return defaultExport;
-      }
-    }
-
-    throw new Error('Unable to resolve pdf-parse function');
-  }
-
-  private isPdfParseFn(value: unknown): value is PdfParseFn {
-    return typeof value === 'function';
   }
 }

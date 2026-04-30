@@ -11,14 +11,16 @@ import {
 } from '../components/ui/card';
 import {
   Field,
-  FieldDescription,
   FieldError,
   FieldGroup,
   FieldLabel,
 } from '../components/ui/field';
 import { Input } from '../components/ui/input';
 import { useAuth } from '../contexts/auth-context';
-import { loginSchema, type LoginSchemaValues } from '../schemas/auth/login.schema';
+import {
+  loginSchema,
+  type LoginSchemaValues,
+} from '../schemas/auth/login.schema';
 
 export default function LoginPage() {
   const { isAuthenticated, login } = useAuth();
@@ -60,9 +62,6 @@ export default function LoginPage() {
                   aria-invalid={!!form.formState.errors.email}
                   {...form.register('email')}
                 />
-                <FieldDescription>
-                  We store it in localStorage for auth emulation.
-                </FieldDescription>
                 <FieldError errors={[form.formState.errors.email]} />
               </Field>
               <Button type='submit' disabled={form.formState.isSubmitting}>
