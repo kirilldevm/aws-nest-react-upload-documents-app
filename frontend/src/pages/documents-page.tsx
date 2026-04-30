@@ -12,6 +12,7 @@ import { Input } from '../components/ui/input';
 import { useAuth } from '../contexts/auth-context';
 import { useDeleteDocumentMutation } from '../hooks/use-delete-document-mutation';
 import { useDocumentsQuery } from '../hooks/use-documents-query';
+import { useDocumentsSse } from '../hooks/use-documents-sse';
 import { useUploadDocumentMutation } from '../hooks/use-upload-document-mutation';
 
 export default function DocumentsPage() {
@@ -20,6 +21,7 @@ export default function DocumentsPage() {
   const [formError, setFormError] = useState('');
 
   const documentsQuery = useDocumentsQuery(email);
+  useDocumentsSse(email);
   const uploadMutation = useUploadDocumentMutation(email);
   const deleteMutation = useDeleteDocumentMutation(email);
 
