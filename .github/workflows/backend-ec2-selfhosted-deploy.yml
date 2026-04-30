@@ -1,0 +1,32 @@
+name: Backend Deploy (EC2 Self-hosted)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/backend-ec2-selfhosted-deploy.yml'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, backend-prod]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Write backend environment file
+        shell: bash
+        run: |
+          printf "%s" "${{ secrets.BACKEND_ENV_FILE }}" > backend/.env
+
+      - name: Deploy with Docker Compose
+        shell: bash
+        run: |
+          docker compose -f backend/docker-compose.ec2.yml down --remove-orphans || true
+          docker compose -f backend/docker-compose.ec2.yml up -d --build
+
+      - name: Show running containers
+        shell: bash
+        run: docker compose -f backend/docker-compose.ec2.yml ps
+
