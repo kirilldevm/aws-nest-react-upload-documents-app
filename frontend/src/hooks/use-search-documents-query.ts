@@ -10,6 +10,7 @@ export function useSearchDocumentsQuery(
   return useQuery({
     queryKey: QUERY_KEYS.searchDocuments(userEmail ?? '', query),
     queryFn: () => documentsService.searchDocuments(userEmail as string, query),
+    select: (data) => (Array.isArray(data) ? data : []),
     enabled: Boolean(userEmail) && enabled && query.trim().length > 0,
   });
 }

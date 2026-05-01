@@ -6,6 +6,7 @@ export function useDocumentsQuery(userEmail: string | null) {
   return useQuery({
     queryKey: QUERY_KEYS.documents(userEmail ?? ''),
     queryFn: () => documentsService.getDocuments(userEmail as string),
+    select: (data) => (Array.isArray(data) ? data : []),
     enabled: Boolean(userEmail),
   });
 }
