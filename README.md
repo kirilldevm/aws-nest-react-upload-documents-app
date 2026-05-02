@@ -25,17 +25,17 @@ Full-stack app for uploading `.pdf`/`.docx` documents to AWS S3, processing them
 
 ## Architecture Flow
 
-1. Frontend requests `POST /uploads/presign`.
-2. Backend validates metadata and creates DB record with `pending` status.
-3. Backend returns pre-signed S3 `PUT` URL.
-4. Frontend uploads file directly to S3.
-5. S3 emits event to SQS queue.
-6. Backend SQS listener downloads file, extracts text, indexes to OpenSearch.
-7. Backend updates DB status and publishes SSE events.
+1. Frontend calls `POST /documents/pending` — validates metadata, reserves an S3 key, creates a DB row with `pending` status, notifies SSE.
+2. Frontend calls `POST /documents/:id/presign?userEmail=...` — domain auth + returns a generic S3 presigned `PUT` URL (signing lives in `S3PresignService`, no upload logic mixed in).
+3. Frontend uploads the file directly to S3 with that URL.
+4. S3 emits an event to SQS.
+5. Backend SQS listener downloads the object, parses text, indexes OpenSearch.
+6. Backend updates DB status and publishes SSE events.
 
 ## Repository Structure
 
 - `backend/` - NestJS API and SQS worker/listener
+  - `src/common/aws/` - AWS integration: `types/index.ts` (shared types), `s3/s3.service.ts` (S3 client + presign), `opensearch/`, `sqs/` (listener + client), `aws.module.ts`
 - `frontend/` - React app (Vite)
 - `.github/workflows/` - CI/CD workflows
 
@@ -57,6 +57,8 @@ Full-stack app for uploading `.pdf`/`.docx` documents to AWS S3, processing them
 4. Start backend:
    - `npm run start:dev`
 
+On boot, `ConfigModule` runs a **Joi schema** (`src/config/env.validation.ts`) so missing or invalid environment variables fail fast. See [NestJS configuration — schema validation](https://docs.nestjs.com/techniques/configuration#schema-validation).
+
 ### Important backend env notes
 
 - For local Docker Postgres mapping, `POSTGRES_PORT` may be `5433` if host port is remapped.
@@ -64,6 +66,7 @@ Full-stack app for uploading `.pdf`/`.docx` documents to AWS S3, processing them
   - `POSTGRES_HOST=postgres`
   - `POSTGRES_PORT=5432`
 - If you use a fresh DB without migrations, set `DB_SYNCHRONIZE=true` temporarily so TypeORM creates tables.
+- Set `API_KEY` for production so `GET /aws/health` is not publicly callable without the key.
 
 ## Frontend Setup (Local)
 
@@ -133,8 +136,9 @@ Compose file used in deploy:
 
 ## Useful API Endpoints
 
-- `GET /aws/health`
-- `POST /uploads/presign`
+- `GET /aws/health` — protected in production: set `API_KEY` in `backend/.env` and send `X-Api-Key: <key>`. If `API_KEY` is unset, the route is open only when `NODE_ENV` is not `production` (for local dev).
+- `POST /documents/pending`
+- `POST /documents/:id/presign?userEmail=...`
 - `GET /documents?userEmail=...`
 - `GET /documents/search?userEmail=...&q=...`
 - `DELETE /documents/:id?userEmail=...`

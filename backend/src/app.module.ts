@@ -7,13 +7,18 @@ import { AwsModule } from './common/aws/aws.module';
 import config from './config';
 import { DocumentsModule } from './modules/documents/documents.module';
 import { SseModule } from './modules/sse/sse.module';
-import { UploadsModule } from './modules/uploads/uploads.module';
+import { validationSchema } from './config/env.validation';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
       load: [config],
+      validationSchema,
+      validationOptions: {
+        abortEarly: false,
+        allowUnknown: true,
+      },
     }),
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
@@ -23,7 +28,6 @@ import { UploadsModule } from './modules/uploads/uploads.module';
     }),
     AwsModule,
     DocumentsModule,
-    UploadsModule,
     SseModule,
   ],
   controllers: [AppController],

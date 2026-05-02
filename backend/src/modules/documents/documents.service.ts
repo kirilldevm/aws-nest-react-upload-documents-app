@@ -1,4 +1,5 @@
 import {
+  ConflictException,
   Injectable,
   InternalServerErrorException,
   NotFoundException,
@@ -6,23 +7,20 @@ import {
 import { DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
+import { randomUUID } from 'crypto';
+import { extname } from 'path';
 import { In, IsNull, Repository } from 'typeorm';
-import { AwsService } from '../../common/aws/aws.service';
+import { OpenSearchService } from '../../common/aws/opensearch/opensearch.service';
+import { S3Service } from '../../common/aws/s3/s3.service';
+import type {
+  DocumentIndexSource,
+  OpenSearchHit,
+} from '../../common/aws/types';
 import { SseService } from '../sse/sse.service';
 import { CreateDocumentDto } from './dto/create-document.dto';
+import { CreatePendingDocumentDto } from './dto/create-pending-document.dto';
 import { DocumentStatus } from './entities/document-status.enum';
 import { DocumentEntity } from './entities/document.entity';
-
-type OpenSearchHit = {
-  _id: string;
-  _source?: {
-    userFilename?: string;
-    uploadedAt?: string;
-  };
-  highlight?: {
-    content?: string[];
-  };
-};
 
 @Injectable()
 export class DocumentsService {
@@ -30,7 +28,8 @@ export class DocumentsService {
     @InjectRepository(DocumentEntity)
     private readonly documentsRepository: Repository<DocumentEntity>,
     private readonly configService: ConfigService,
-    private readonly awsService: AwsService,
+    private readonly s3Service: S3Service,
+    private readonly openSearchService: OpenSearchService,
     private readonly sseService: SseService,
   ) {}
 
@@ -49,6 +48,64 @@ export class DocumentsService {
     });
 
     return this.documentsRepository.save(document);
+  }
+
+  async initiatePendingDocument(dto: CreatePendingDocumentDto) {
+    const active = await this.findActiveByUserEmail(dto.userEmail);
+    if (active) {
+      throw new ConflictException(
+        'You already have a document uploading/indexing. Upload after it finishes.',
+      );
+    }
+
+    const extRaw = extname(dto.originalFilename).toLowerCase();
+    const s3Filename = `documents/${randomUUID()}${extRaw}`;
+
+    const document = await this.createPendingDocument({
+      userEmail: dto.userEmail,
+      userFilename: dto.originalFilename,
+      s3Filename,
+      mimeType: dto.mimeType,
+      sizeBytes: dto.sizeBytes,
+    });
+
+    this.sseService.publish(dto.userEmail, 'document_status', {
+      documentId: document.id,
+      status: DocumentStatus.Pending,
+    });
+
+    return {
+      documentId: document.id,
+      s3Filename,
+      mimeType: dto.mimeType,
+      sizeBytes: dto.sizeBytes,
+    };
+  }
+
+  async createPresignedPutForDocument(documentId: string, userEmail: string) {
+    const document = await this.documentsRepository.findOne({
+      where: {
+        id: documentId,
+        userEmail,
+        deletedAt: IsNull(),
+      },
+    });
+
+    if (!document) {
+      throw new NotFoundException('Document not found');
+    }
+
+    if (document.status !== DocumentStatus.Pending) {
+      throw new ConflictException(
+        'Upload URL is only available while the document is pending.',
+      );
+    }
+
+    return this.s3Service.signPutObject({
+      key: document.s3Filename,
+      contentType: document.mimeType,
+      contentLength: Number(document.sizeBytes),
+    });
   }
 
   async findByUserEmail(userEmail: string) {
@@ -103,12 +160,11 @@ export class DocumentsService {
   }
 
   async searchByUserEmail(userEmail: string, query: string) {
-    const openSearchClient = this.awsService.createOpenSearchClient();
     const index = this.configService.getOrThrow<string>(
       'config.aws.opensearchIndex',
     );
 
-    const response = await openSearchClient.search({
+    const response = await this.openSearchService.client.search({
       index,
       body: {
         size: 20,
@@ -144,7 +200,8 @@ export class DocumentsService {
       },
     });
 
-    const hits = (response.body.hits?.hits ?? []) as unknown as OpenSearchHit[];
+    const hits = (response.body.hits?.hits ??
+      []) as unknown as OpenSearchHit<DocumentIndexSource>[];
 
     const ids = hits.map((hit) => hit._id);
     const docs = ids.length
@@ -186,20 +243,18 @@ export class DocumentsService {
       throw new NotFoundException('Document not found');
     }
 
-    const s3Client = this.awsService.createS3Client();
-    const openSearchClient = this.awsService.createOpenSearchClient();
     const openSearchIndex = this.configService.getOrThrow<string>(
       'config.aws.opensearchIndex',
     );
 
     const [s3Result, openSearchResult] = await Promise.allSettled([
-      s3Client.send(
+      this.s3Service.client.send(
         new DeleteObjectCommand({
           Bucket: document.s3Bucket,
           Key: document.s3Filename,
         }),
       ),
-      openSearchClient.delete({
+      this.openSearchService.client.delete({
         index: openSearchIndex,
         id: document.id,
       }),

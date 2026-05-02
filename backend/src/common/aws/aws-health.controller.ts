@@ -1,13 +1,19 @@
 import { HeadBucketCommand } from '@aws-sdk/client-s3';
 import { GetQueueAttributesCommand } from '@aws-sdk/client-sqs';
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, UseGuards } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { AwsService } from './aws.service';
+import { ApiKeyGuard } from '../guards/api-key.guard';
+import { OpenSearchService } from './opensearch/opensearch.service';
+import { S3Service } from './s3/s3.service';
+import { SqsService } from './sqs/sqs.service';
 
 @Controller('aws')
+@UseGuards(ApiKeyGuard)
 export class AwsHealthController {
   constructor(
-    private readonly awsService: AwsService,
+    private readonly s3Service: S3Service,
+    private readonly sqsService: SqsService,
+    private readonly openSearchService: OpenSearchService,
     private readonly configService: ConfigService,
   ) {}
 
@@ -23,20 +29,16 @@ export class AwsHealthController {
       'config.aws.opensearchIndex',
     );
 
-    const s3Client = this.awsService.createS3Client();
-    const sqsClient = this.awsService.createSqsClient();
-    const openSearchClient = this.awsService.createOpenSearchClient();
-
-    const s3Promise = s3Client.send(
+    const s3Promise = this.s3Service.client.send(
       new HeadBucketCommand({ Bucket: s3Bucket }),
     );
-    const sqsPromise = sqsClient.send(
+    const sqsPromise = this.sqsService.client.send(
       new GetQueueAttributesCommand({
         QueueUrl: sqsQueueUrl,
         AttributeNames: ['QueueArn'],
       }),
     );
-    const openSearchPromise = openSearchClient.indices.exists({
+    const openSearchPromise = this.openSearchService.client.indices.exists({
       index: opensearchIndex,
     });
 

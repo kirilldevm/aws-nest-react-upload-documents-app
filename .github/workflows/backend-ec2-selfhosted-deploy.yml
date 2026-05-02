@@ -1,4 +1,4 @@
-name: Backend Deploy (EC2 Self-hosted)
+name: Backend Deploy
 
 on:
   push:
@@ -29,4 +29,3 @@ jobs:
       - name: Show running containers
         shell: bash
         run: docker compose -f backend/docker-compose.ec2.yml ps
-

@@ -1,8 +1,9 @@
 import { api } from '../config/api';
 import type { DocumentItem, SearchDocumentItem } from '../types/document';
 import type {
-  CreateUploadPresignRequest,
-  CreateUploadPresignResponse,
+  CreatePendingDocumentRequest,
+  CreatePendingDocumentResponse,
+  DocumentPresignResponse,
 } from '../types/upload';
 
 export class DocumentsService {
@@ -13,10 +14,21 @@ export class DocumentsService {
     return data;
   }
 
-  async createUploadPresign(payload: CreateUploadPresignRequest) {
-    const { data } = await api.post<CreateUploadPresignResponse>(
-      '/uploads/presign',
+  async createPendingDocument(payload: CreatePendingDocumentRequest) {
+    const { data } = await api.post<CreatePendingDocumentResponse>(
+      '/documents/pending',
       payload,
+    );
+    return data;
+  }
+
+  async getDocumentPresignUrl(documentId: string, userEmail: string) {
+    const { data } = await api.post<DocumentPresignResponse>(
+      `/documents/${documentId}/presign`,
+      {},
+      {
+        params: { userEmail },
+      },
     );
     return data;
   }
@@ -40,4 +52,3 @@ export class DocumentsService {
 }
 
 export const documentsService = new DocumentsService();
-

@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -10,59 +9,45 @@ import {
   Query,
 } from '@nestjs/common';
 import { DocumentsService } from './documents.service';
-import { CreateDocumentDto } from './dto/create-document.dto';
+import { CreatePendingDocumentDto } from './dto/create-pending-document.dto';
+import { DeleteDocumentParamDto } from './dto/delete-document-param.dto';
+import { ListDocumentsQueryDto } from './dto/list-documents-query.dto';
+import { SearchDocumentsQueryDto } from './dto/search-documents-query.dto';
 import { UpdateStatusDto } from './dto/update-status.dto';
+import { UserEmailQueryDto } from './dto/user-email-query.dto';
 
 @Controller('documents')
 export class DocumentsController {
   constructor(private readonly documentsService: DocumentsService) {}
 
-  @Post()
-  async createPendingDocument(@Body() body: CreateDocumentDto) {
-    if (!body.userEmail || !body.userFilename || !body.s3Filename) {
-      throw new BadRequestException(
-        'userEmail, userFilename and s3Filename are required',
-      );
-    }
+  @Post('pending')
+  async initiatePending(@Body() body: CreatePendingDocumentDto) {
+    return this.documentsService.initiatePendingDocument(body);
+  }
 
-    if (typeof body.sizeBytes !== 'number' || Number.isNaN(body.sizeBytes)) {
-      throw new BadRequestException('sizeBytes must be a number');
-    }
-
-    return this.documentsService.createPendingDocument(body);
+  @Post(':id/presign')
+  async presignPutUrl(
+    @Param() params: DeleteDocumentParamDto,
+    @Query() query: UserEmailQueryDto,
+  ) {
+    return this.documentsService.createPresignedPutForDocument(
+      params.id,
+      query.userEmail,
+    );
   }
 
   @Get()
-  async listByUser(@Query('userEmail') userEmail?: string) {
-    if (!userEmail) {
-      throw new BadRequestException('userEmail query parameter is required');
-    }
-
-    return this.documentsService.findByUserEmail(userEmail);
+  async listByUser(@Query() query: ListDocumentsQueryDto) {
+    return this.documentsService.findByUserEmail(query.userEmail);
   }
 
   @Get('search')
-  async searchByUser(
-    @Query('userEmail') userEmail?: string,
-    @Query('q') query?: string,
-  ) {
-    if (!userEmail) {
-      throw new BadRequestException('userEmail query parameter is required');
-    }
-
-    if (!query?.trim()) {
-      throw new BadRequestException('q query parameter is required');
-    }
-
-    return this.documentsService.searchByUserEmail(userEmail, query.trim());
+  async searchByUser(@Query() query: SearchDocumentsQueryDto) {
+    return this.documentsService.searchByUserEmail(query.userEmail, query.q);
   }
 
   @Patch('status')
   async updateStatus(@Body() body: UpdateStatusDto) {
-    if (!body.documentId || !body.status) {
-      throw new BadRequestException('documentId and status are required');
-    }
-
     await this.documentsService.updateStatus(
       body.documentId,
       body.status,
@@ -74,16 +59,9 @@ export class DocumentsController {
 
   @Delete(':id')
   async deleteById(
-    @Param('id') documentId?: string,
-    @Query('userEmail') userEmail?: string,
+    @Param() params: DeleteDocumentParamDto,
+    @Query() query: UserEmailQueryDto,
   ) {
-    if (!documentId) {
-      throw new BadRequestException('Document id is required');
-    }
-    if (!userEmail) {
-      throw new BadRequestException('userEmail query parameter is required');
-    }
-
-    return this.documentsService.deleteByIdForUser(documentId, userEmail);
+    return this.documentsService.deleteByIdForUser(params.id, query.userEmail);
   }
 }

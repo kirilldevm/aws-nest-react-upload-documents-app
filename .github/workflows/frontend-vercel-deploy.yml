@@ -1,4 +1,4 @@
-name: Frontend Deploy (Vercel)
+name: Frontend Deploy
 
 on:
   push:
@@ -43,4 +43,3 @@ jobs:
 
       - name: Deploy to Vercel
         run: npx vercel@latest deploy --prebuilt --prod --token="${VERCEL_TOKEN}"
-

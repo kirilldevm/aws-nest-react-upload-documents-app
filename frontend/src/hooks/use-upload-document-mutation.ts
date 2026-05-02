@@ -12,12 +12,17 @@ export function useUploadDocumentMutation(userEmail: string | null) {
 
   return useMutation({
     mutationFn: async ({ userEmail: email, file }: UploadInput) => {
-      const presign = await documentsService.createUploadPresign({
+      const pending = await documentsService.createPendingDocument({
         userEmail: email,
         originalFilename: file.name,
         mimeType: file.type || 'application/octet-stream',
         sizeBytes: file.size,
       });
+
+      const presign = await documentsService.getDocumentPresignUrl(
+        pending.documentId,
+        email,
+      );
 
       const uploadResponse = await fetch(presign.presignedUrl, {
         method: 'PUT',
@@ -29,7 +34,7 @@ export function useUploadDocumentMutation(userEmail: string | null) {
         throw new Error(`Upload failed with status ${uploadResponse.status}`);
       }
 
-      return presign;
+      return { pending, presign };
     },
     onSuccess: async () => {
       if (!userEmail) return;
@@ -39,4 +44,3 @@ export function useUploadDocumentMutation(userEmail: string | null) {
     },
   });
 }
-

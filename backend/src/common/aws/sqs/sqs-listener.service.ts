@@ -13,23 +13,13 @@ import {
 import { ConfigService } from '@nestjs/config';
 import mammoth from 'mammoth';
 import { PDFParse } from 'pdf-parse';
-import { DocumentsService } from '../../modules/documents/documents.service';
-import { DocumentStatus } from '../../modules/documents/entities/document-status.enum';
-import { SseService } from '../../modules/sse/sse.service';
-import { AwsService } from './aws.service';
-
-type S3EventRecord = {
-  s3?: {
-    object?: {
-      key?: string;
-    };
-  };
-};
-
-type S3EventEnvelope = {
-  Records?: S3EventRecord[];
-  Message?: string;
-};
+import { DocumentsService } from '../../../modules/documents/documents.service';
+import { DocumentStatus } from '../../../modules/documents/entities/document-status.enum';
+import { SseService } from '../../../modules/sse/sse.service';
+import { OpenSearchService } from '../opensearch/opensearch.service';
+import { S3Service } from '../s3/s3.service';
+import type { DocumentIndexSource, S3EventEnvelope } from '../types';
+import { SqsService } from './sqs.service';
 
 @Injectable()
 export class SqsListenerService implements OnModuleInit, OnModuleDestroy {
@@ -43,7 +33,9 @@ export class SqsListenerService implements OnModuleInit, OnModuleDestroy {
   private isPolling = false;
 
   constructor(
-    private readonly awsService: AwsService,
+    private readonly s3Service: S3Service,
+    private readonly sqsService: SqsService,
+    private readonly openSearchService: OpenSearchService,
     private readonly configService: ConfigService,
     private readonly documentsService: DocumentsService,
     private readonly sseService: SseService,
@@ -91,8 +83,7 @@ export class SqsListenerService implements OnModuleInit, OnModuleDestroy {
     this.isPolling = true;
 
     try {
-      const sqsClient = this.awsService.createSqsClient();
-      const result = await sqsClient.send(
+      const result = await this.sqsService.client.send(
         new ReceiveMessageCommand({
           QueueUrl: this.queueUrl,
           MaxNumberOfMessages: 3,
@@ -120,8 +111,6 @@ export class SqsListenerService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async handleMessage(message: Message) {
-    const sqsClient = this.awsService.createSqsClient();
-
     try {
       const s3Key = this.extractS3ObjectKey(message.Body ?? '');
 
@@ -134,7 +123,7 @@ export class SqsListenerService implements OnModuleInit, OnModuleDestroy {
       }
 
       if (message.ReceiptHandle) {
-        await sqsClient.send(
+        await this.sqsService.client.send(
           new DeleteMessageCommand({
             QueueUrl: this.queueUrl,
             ReceiptHandle: message.ReceiptHandle,
@@ -195,21 +184,22 @@ export class SqsListenerService implements OnModuleInit, OnModuleDestroy {
     });
 
     try {
-      const openSearchClient = this.awsService.createOpenSearchClient();
       const fileBuffer = await this.getS3ObjectBuffer(s3Key);
       const extractedText = await this.extractTextFromFile(s3Key, fileBuffer);
 
-      await openSearchClient.index({
+      const indexSource: DocumentIndexSource = {
+        documentId: document.id,
+        userEmail: document.userEmail,
+        userFilename: document.userFilename,
+        s3Filename: document.s3Filename,
+        content: extractedText,
+        uploadedAt: document.uploadedAt.toISOString(),
+      };
+
+      await this.openSearchService.client.index({
         index: this.openSearchIndex,
         id: document.id,
-        body: {
-          documentId: document.id,
-          userEmail: document.userEmail,
-          userFilename: document.userFilename,
-          s3Filename: document.s3Filename,
-          content: extractedText,
-          uploadedAt: document.uploadedAt.toISOString(),
-        },
+        body: indexSource,
         refresh: true,
       });
 
@@ -239,8 +229,7 @@ export class SqsListenerService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async getS3ObjectBuffer(s3Key: string): Promise<Buffer> {
-    const s3Client = this.awsService.createS3Client();
-    const response = await s3Client.send(
+    const response = await this.s3Service.client.send(
       new GetObjectCommand({
         Bucket: this.s3Bucket,
         Key: s3Key,
